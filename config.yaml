@@ -1,0 +1,42 @@
+# ID целевого резюме на hh.kz (python main.py resumes — покажет список)
+resume_id: ""
+
+search:
+  max_pages: 5            # страниц рекомендаций (по 20 вакансий)
+  per_page: 20
+  queries: []             # доп. запросы по ключевым словам, напр. ["бизнес-аналитик", "product manager"]
+
+filters:
+  stop_words:             # в названии/описании (регистр не важен)
+    - финансовый аналитик
+  include_roles:          # если совпало с названием — вакансия не отсеивается стоп-словами
+    - product manager
+    - product analyst
+    - business analyst
+    - бизнес-аналитик
+    - продуктовый аналитик
+    - project manager
+    - менеджер проектов
+    - ассистент руководителя
+    - операционный ассистент
+  areas:                  # id или названия регионов (160 = Алматы)
+    - "160"
+  allow_remote: true      # удалённые вакансии проходят гео-фильтр
+  min_salary: 0           # 0 = не фильтровать
+  salary_currency: KZT
+  excluded_employers: []  # id или названия работодателей
+
+batch:
+  size: 10
+  delay_seconds: 3        # пауза между отправками откликов
+
+claude:
+  model: claude-sonnet-4-5
+  max_letter_chars: 10000
+  letter_target_chars: 1500
+
+logging:
+  level: INFO
+  file_path: logs/hh_apply.log
+
+database_path: data/hh_apply.db
