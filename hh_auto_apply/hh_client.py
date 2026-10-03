@@ -55,6 +55,10 @@ class HHClient:
         ua = os.environ.get("HH_USER_AGENT", "hh-auto-apply/1.0")
         self.http = httpx.Client(timeout=30, headers={"User-Agent": ua, "HH-User-Agent": ua})
 
+    @property
+    def has_token(self) -> bool:
+        return bool(self.access_token)
+
     # --- OAuth ------------------------------------------------------------
     def authorize_interactive(self) -> None:
         if not (self.client_id and self.client_secret):

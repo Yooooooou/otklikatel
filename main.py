@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import logging
 import sys
+from pathlib import Path
 from datetime import datetime
 
 import click
 
-from hh_auto_apply import batch_ui
+from hh_auto_apply import batch_ui, outbox
 from hh_auto_apply.apply import send_batch
 from hh_auto_apply.claude_client import ClaudeClient, LetterError
 from hh_auto_apply.config import load_config, setup_logging
@@ -27,6 +28,17 @@ def _setup(config_path: str):
     if cfg.get("batch", {}).get("hide_skipped", True):
         storage.blocking = ("sent", "approved", "skipped")
     return cfg, storage
+
+
+def _resume_text(hh: HHClient, cfg: dict) -> str:
+    """Онлайн — резюме из HH API; без токена — из локального файла (resume_file)."""
+    if hh.has_token:
+        return resume_to_text(hh.get_resume(_need_resume(cfg)))
+    path = Path(cfg.get("resume_file", "data/resume.md"))
+    if not path.exists() or not path.read_text(encoding="utf-8").strip():
+        raise click.ClickException(
+            f"HH-токена нет (оффлайн-режим). Вставьте текст вашего резюме с hh.kz в файл {path}")
+    return path.read_text(encoding="utf-8")
 
 
 def _need_resume(cfg: dict) -> str:
@@ -80,7 +92,11 @@ def resumes(config_path: str) -> None:
 def run(config_path: str, batch_size: int | None, dry_run: bool, prepare_only: bool) -> None:
     """Поиск → фильтры → письма → батч на проверку → отправка."""
     cfg, storage = _setup(config_path)
-    resume_id = _need_resume(cfg)
+    hh = HHClient()
+    offline = not hh.has_token
+    resume_id = str(cfg.get("resume_id") or "") if offline else _need_resume(cfg)
+    if offline:
+        click.echo("ℹ Оффлайн-режим: нет HH-токена. Письма сохранятся в data/outbox, отправка вручную.")
     size = batch_size or int(cfg.get("batch", {}).get("size", 10))
     interactive = not (dry_run or prepare_only)
     if interactive and not sys.stdin.isatty():
@@ -92,12 +108,11 @@ def run(config_path: str, batch_size: int | None, dry_run: bool, prepare_only: b
     sent = errors = 0
     items: list[BatchItem] = []
     try:
-        hh = HHClient()
         claude = ClaudeClient(cl.get("model", "claude-sonnet-4-5"), int(cl.get("max_letter_chars", 10000)),
                               int(cl.get("letter_target_chars", 1500)))
         log.info("Загружаю резюме %s", resume_id)
-        resume_text = resume_to_text(hh.get_resume(resume_id))
-        items = prepare_batch(hh, claude, storage, cfg, resume_text, size, counters)
+        resume_text = _resume_text(hh, cfg)
+        items = prepare_batch(hh, claude, storage, cfg, resume_text, size, counters, offline)
 
         def regenerate(it: BatchItem) -> str:
             return claude.generate_letter(resume_text, it.vacancy, variant=True)
@@ -109,8 +124,12 @@ def run(config_path: str, batch_size: int | None, dry_run: bool, prepare_only: b
             click.echo("\nDry-run: ничего не отправлено." if dry_run else
                        "\nПодготовлено. Для просмотра и отправки запустите: python main.py run")
         else:
-            approved = batch_ui.review(items, storage, regenerate)
-            if approved:
+            approved = batch_ui.review(
+                items, storage, regenerate,
+                "Сохранить одобренные письма в outbox?" if offline else "Отправить одобренные отклики?")
+            if approved and offline:
+                outbox.save(approved)
+            elif approved:
                 res = send_batch(hh, storage, approved, resume_id,
                                  delay=float(cfg.get("batch", {}).get("delay_seconds", 3)))
                 sent, errors = res.sent, res.errors
@@ -162,12 +181,36 @@ def stats(config_path: str) -> None:
         click.echo(f"{k}: {s.get(k, 0)}")
 
 
+@cli.command("mark-sent")
+@click.argument("vacancy_ids", nargs=-1)
+@click.option("--all", "all_", is_flag=True, help="Отметить все одобренные как отправленные")
+@click.pass_obj
+def mark_sent(config_path: str, vacancy_ids: tuple[str, ...], all_: bool) -> None:
+    """Оффлайн: отметить вручную отправленные отклики (чтобы они не предлагались снова)."""
+    _, storage = _setup(config_path)
+    n = outbox.mark_sent(storage, vacancy_ids, all_)
+    click.echo(f"Отмечено отправленными: {n}")
+
+
+@cli.command("outbox")
+@click.pass_obj
+def show_outbox(config_path: str) -> None:
+    """Оффлайн: показать одобренные письма, ожидающие ручной отправки."""
+    _, storage = _setup(config_path)
+    items = outbox.show_pending(storage)
+    if not items:
+        click.echo("Outbox пуст."); return
+    outbox.save(items)
+
+
 @cli.command("retry-captcha")
 @click.pass_obj
 def retry_captcha(config_path: str) -> None:
     """Показать вакансии captcha_pending и доотправить их."""
     cfg, storage = _setup(config_path)
     resume_id = _need_resume(cfg)
+    if not HHClient().has_token:
+        raise click.ClickException("Нужен HH-токен (python main.py auth).")
     items = [it for it in leftover_items(storage, 1000) if it.application.status == "captcha_pending"]
     if not items:
         click.echo("Нет вакансий в статусе captcha_pending."); return

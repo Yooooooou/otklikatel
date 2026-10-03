@@ -96,3 +96,16 @@ class FakeAnthropic:
 def test_letter_shortened_when_too_long():
     c = ClaudeClient("m", max_chars=100, client=FakeAnthropic(["x" * 500, "short"]))
     assert c.generate_letter("resume", vac()) == "short"
+
+
+def test_outbox_flow(tmp_path, monkeypatch):
+    from hh_auto_apply import outbox
+    monkeypatch.setattr(outbox, "OUTBOX", tmp_path)
+    s = Storage(":memory:")
+    its = items(s, 2)
+    outbox.save(its)
+    for it in its:
+        s.update_application(it.application.id, status="approved")
+    assert len(outbox.show_pending(s)) == 2
+    assert outbox.mark_sent(s, ("0",), False) == 1
+    assert s.is_applied_sent("0") and not s.is_applied_sent("1")

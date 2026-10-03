@@ -14,6 +14,14 @@ cp .env.example .env     # впишите HH_CLIENT_ID, HH_CLIENT_SECRET, ANTHRO
 2. `python main.py auth` — OAuth (токены сохраняются в `.env` и обновляются автоматически).
 3. `python main.py resumes` — найдите `resume_id` и впишите в `config.yaml`.
 
+## Режим без HH-токена (оффлайн)
+Пока dev.hh.ru не выдал ключ: оставьте `HH_*` пустыми, вставьте текст резюме в `data/resume.md`
+и задайте `search.queries` в `config.yaml` (рекомендации hh без токена недоступны). `python main.py run`
+сам перейдёт в оффлайн: поиск идёт по публичному API, одобренные письма сохраняются в `data/outbox/`
+и выводятся в терминал — откликаетесь на hh.kz вручную, затем `python main.py mark-sent`
+(`--all` или id вакансий). `python main.py outbox` — показать ожидающие письма. С токеном всё работает
+как раньше: автоматическая отправка.
+
 ## Команды
 ```bash
 python main.py run                  # поиск + письма + батч на проверку + отправка

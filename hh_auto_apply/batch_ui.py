@@ -72,7 +72,8 @@ def _edit(it: BatchItem, storage: Storage) -> None:
 
 
 def review(items: list[BatchItem], storage: Storage,
-           regenerate: Callable[[BatchItem], str]) -> list[BatchItem] | None:
+           regenerate: Callable[[BatchItem], str],
+           confirm_text: str = "Отправить одобренные отклики?") -> list[BatchItem] | None:
     """Интерактивный просмотр. Возвращает одобренные элементы или None, если пользователь вышел/не подтвердил."""
     render_batch(items)
     click.echo(HELP)
@@ -91,8 +92,8 @@ def review(items: list[BatchItem], storage: Storage,
             continue
         if raw == "done":
             approved = _finalize(items, storage)
-            click.echo(f"\nК отправке: {len(approved)}, пропущено: {len(items) - len(approved)}")
-            if approved and click.confirm("Отправить одобренные отклики?", default=False):
+            click.echo(f"\nОдобрено: {len(approved)}, пропущено: {len(items) - len(approved)}")
+            if approved and click.confirm(confirm_text, default=False):
                 return approved
             if not approved:
                 return []

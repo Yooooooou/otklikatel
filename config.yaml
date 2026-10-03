@@ -1,5 +1,7 @@
 # ID целевого резюме на hh.kz (python main.py resumes — покажет список)
 resume_id: ""
+# Без HH-токена: файл с текстом вашего резюме (скопируйте с hh.kz)
+resume_file: data/resume.md
 
 search:
   max_pages: 5            # страниц рекомендаций (по 20 вакансий)

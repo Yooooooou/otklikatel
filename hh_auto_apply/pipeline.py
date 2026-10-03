@@ -42,17 +42,21 @@ def iter_candidates(hh: HHClient, cfg: dict) -> Iterator[dict]:
             if page + 1 >= data.get("pages", 0):
                 return
 
-    yield from pages(lambda p: hh.similar_vacancies(cfg["resume_id"], p, per_page))
+    if hh.has_token and cfg.get("resume_id"):
+        yield from pages(lambda p: hh.similar_vacancies(cfg["resume_id"], p, per_page))
+    elif not s.get("queries"):
+        log.error("Без токена рекомендации недоступны: задайте search.queries в config.yaml")
     areas = [a for a in f.get("areas") or [] if str(a).isdigit()]
     for q in s.get("queries") or []:
         yield from pages(lambda p, q=q: hh.search_vacancies(
             q, area=areas[0] if areas else None, salary=f.get("min_salary") or None, page=p, per_page=per_page))
 
 
-def leftover_items(storage: Storage, limit: int) -> list[BatchItem]:
+def leftover_items(storage: Storage, limit: int,
+                   statuses: tuple[str, ...] = RESUME_STATUSES) -> list[BatchItem]:
     """Незавершённые заявки прошлых запусков (идемпотентность, раздел 13)."""
     items = []
-    for app in storage.pending_applications(RESUME_STATUSES, limit):
+    for app in storage.pending_applications(statuses, limit):
         v = storage.get_vacancy(app.vacancy_id)
         if v and not storage.is_applied_sent(v.id):
             note = "возобновлено с прошлого запуска" + (" (ждала капчи)" if app.status == "captcha_pending" else "")
@@ -61,12 +65,14 @@ def leftover_items(storage: Storage, limit: int) -> list[BatchItem]:
 
 
 def prepare_batch(hh: HHClient, claude: ClaudeClient, storage: Storage, cfg: dict,
-                  resume_text: str, size: int, counters: Counters) -> list[BatchItem]:
-    items = leftover_items(storage, size)
+                  resume_text: str, size: int, counters: Counters,
+                  offline: bool = False) -> list[BatchItem]:
+    # в оффлайне одобренные уже лежат в outbox и в батч не возвращаются
+    items = leftover_items(storage, size, ("generated",) if offline else RESUME_STATUSES)
     if items:
         log.info("Возобновляю %d незавершённых заявок", len(items))
     have = {it.vacancy.id for it in items}
-    resume_id = cfg["resume_id"]
+    resume_id = str(cfg.get("resume_id") or "offline")
 
     for raw in iter_candidates(hh, cfg):
         if len(items) >= size:

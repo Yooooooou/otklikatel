@@ -141,6 +141,9 @@ class Storage:
             sql += f" LIMIT {int(limit)}"
         return [self._app(r) for r in self.conn.execute(sql, statuses)]
 
+    def approved_for_outbox(self) -> list[Application]:
+        return self.pending_applications(("approved",))
+
     def get_vacancy(self, vacancy_id: str) -> Vacancy | None:
         r = self.conn.execute("SELECT * FROM vacancies WHERE id=?", (vacancy_id,)).fetchone()
         if not r:
