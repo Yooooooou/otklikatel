@@ -109,3 +109,20 @@ def test_outbox_flow(tmp_path, monkeypatch):
     assert len(outbox.show_pending(s)) == 2
     assert outbox.mark_sent(s, ("0",), False) == 1
     assert s.is_applied_sent("0") and not s.is_applied_sent("1")
+
+
+def test_review_auto_approve():
+    from click.testing import CliRunner
+    import click
+    from hh_auto_apply import batch_ui
+    s = Storage(":memory:")
+    its = items(s, 2)
+    its[1].application.cover_letter_text = ""   # без письма — не одобряется
+
+    @click.command()
+    def cmd():
+        res = batch_ui.review(its, s, lambda it: "x", auto_approve=True)
+        click.echo(f"N={len(res)}")
+
+    out = CliRunner().invoke(cmd, input="y\n").output
+    assert "N=1" in out

@@ -59,6 +59,30 @@ def cli(ctx: click.Context, config_path: str) -> None:
 
 @cli.command()
 @click.pass_obj
+def setup(config_path: str) -> None:
+    """Мастер первой настройки: ключ Claude, e-mail, резюме, запросы поиска. После него — `run`."""
+    import re
+    from dotenv import set_key
+    env = Path(".env"); env.touch(exist_ok=True)
+    key = click.prompt("ANTHROPIC_API_KEY (sk-ant-...)", hide_input=True)
+    set_key(str(env), "ANTHROPIC_API_KEY", key.strip())
+    mail = click.prompt("Ваш e-mail (для User-Agent hh)")
+    set_key(str(env), "HH_USER_AGENT", f"hh-auto-apply/1.0 ({mail.strip()})")
+    queries = click.prompt("Что искать, через запятую", default="бизнес-аналитик, product manager, project manager")
+    q = ", ".join(f'"{x.strip()}"' for x in queries.split(",") if x.strip())
+    cfgp = Path(config_path)
+    cfgp.write_text(re.sub(r"queries: \[.*?\]", f"queries: [{q}]", cfgp.read_text(encoding="utf-8"), count=1),
+                    encoding="utf-8")
+    rp = Path("data/resume.md"); rp.parent.mkdir(exist_ok=True)
+    if not rp.exists() or not rp.read_text(encoding="utf-8").strip():
+        click.echo("Сейчас откроется редактор: вставьте весь текст вашего резюме с hh.kz, сохраните и закройте.")
+        text = click.edit("") or ""
+        rp.write_text(text.strip() + "\n", encoding="utf-8")
+    click.echo("\nГотово. Дальше: python main.py run --approve-all")
+
+
+@cli.command()
+@click.pass_obj
 def auth(config_path: str) -> None:
     """Первичная OAuth-авторизация в hh.kz."""
     cfg = load_config(config_path)
@@ -86,10 +110,13 @@ def resumes(config_path: str) -> None:
 @cli.command()
 @click.option("--batch-size", type=int, help="Размер батча (по умолчанию из config.yaml)")
 @click.option("--dry-run", is_flag=True, help="Найти и сгенерировать письма, ничего не отправляя")
+@click.option("--approve-all", is_flag=True,
+              help="Одобрить все готовые письма автоматически (останется одно итоговое подтверждение)")
 @click.option("--prepare-only", is_flag=True,
               help="Только поиск и генерация без интерактива (для cron); просмотр — следующим `run`")
 @click.pass_obj
-def run(config_path: str, batch_size: int | None, dry_run: bool, prepare_only: bool) -> None:
+def run(config_path: str, batch_size: int | None, dry_run: bool, prepare_only: bool,
+        approve_all: bool) -> None:
     """Поиск → фильтры → письма → батч на проверку → отправка."""
     cfg, storage = _setup(config_path)
     hh = HHClient()
@@ -125,10 +152,13 @@ def run(config_path: str, batch_size: int | None, dry_run: bool, prepare_only: b
                        "\nПодготовлено. Для просмотра и отправки запустите: python main.py run")
         else:
             approved = batch_ui.review(
-                items, storage, regenerate,
-                "Сохранить одобренные письма в outbox?" if offline else "Отправить одобренные отклики?")
+                items, storage, regenerate, auto_approve=approve_all, confirm_text=
+                "Сохранить одобренные письма?" if offline else "Отправить одобренные отклики?")
             if approved and offline:
-                outbox.save(approved)
+                click.echo(f"\nОдобрено писем: {len(approved)}. Сейчас — по очереди: вакансия откроется "
+                           "в браузере, письмо уже в буфере обмена.")
+                outbox.save_files(approved)
+                sent = outbox.guided_send(storage, approved)
             elif approved:
                 res = send_batch(hh, storage, approved, resume_id,
                                  delay=float(cfg.get("batch", {}).get("delay_seconds", 3)))
@@ -200,7 +230,8 @@ def show_outbox(config_path: str) -> None:
     items = outbox.show_pending(storage)
     if not items:
         click.echo("Outbox пуст."); return
-    outbox.save(items)
+    outbox.save_files(items)
+    outbox.guided_send(storage, items)
 
 
 @cli.command("retry-captcha")

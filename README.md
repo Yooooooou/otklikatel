@@ -14,6 +14,15 @@ cp .env.example .env     # впишите HH_CLIENT_ID, HH_CLIENT_SECRET, ANTHRO
 2. `python main.py auth` — OAuth (токены сохраняются в `.env` и обновляются автоматически).
 3. `python main.py resumes` — найдите `resume_id` и впишите в `config.yaml`.
 
+## Быстрый старт (минимум действий)
+```bash
+pip install -r requirements.txt
+python main.py setup            # ключ Claude, e-mail, резюме, что искать
+python main.py run --approve-all
+```
+Дальше для каждой вакансии: откроется страница в браузере, письмо уже в буфере обмена —
+жмёте «Откликнуться», вставляете (Ctrl+V), в терминале Enter. Каждый запуск — новая пачка.
+
 ## Режим без HH-токена (оффлайн)
 Пока dev.hh.ru не выдал ключ: оставьте `HH_*` пустыми, вставьте текст резюме в `data/resume.md`
 и задайте `search.queries` в `config.yaml` (рекомендации hh без токена недоступны). `python main.py run`

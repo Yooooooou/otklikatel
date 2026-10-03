@@ -73,12 +73,23 @@ def _edit(it: BatchItem, storage: Storage) -> None:
 
 def review(items: list[BatchItem], storage: Storage,
            regenerate: Callable[[BatchItem], str],
-           confirm_text: str = "Отправить одобренные отклики?") -> list[BatchItem] | None:
+           confirm_text: str = "Отправить одобренные отклики?",
+           auto_approve: bool = False) -> list[BatchItem] | None:
     """Интерактивный просмотр. Возвращает одобренные элементы или None, если пользователь вышел/не подтвердил."""
     render_batch(items)
-    click.echo(HELP)
+    if auto_approve:
+        for it in items:
+            if _ready(it) is None:
+                it.decision = "approve"
+        raw_first = "done"
+    else:
+        click.echo(HELP)
+        raw_first = None
     while True:
-        raw = click.prompt("batch>", default="", show_default=False).strip().lower()
+        if raw_first:
+            raw, raw_first = raw_first, None
+        else:
+            raw = click.prompt("batch>", default="", show_default=False).strip().lower()
         if not raw:
             continue
         if raw == "q":
